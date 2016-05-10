@@ -34,17 +34,21 @@ boolean rnd_result_bytes_valid = false;
 #define KEY_SIZE 4 //because we want to use only one page for now (4bytes)
 #define UID_SIZE 7 //because ntag UID is 7 bytes
 #define KEY_STAORAGE_OFFSET 0x7F //we offset the key storage to the middle of the memory for now
-#define MAX_KNOWN_UIDS 10 //for reserving memory to read the uids from eeprom
+#define MAX_KNOWN_UIDS 20 //for reserving memory to read the uids from eeprom
 #define UID_NOT_KNOWN 0xFF //when getting an index of a uid this indicates that it was not found
 
 //defines for jumper learn mode
 #define JP_LEARN_PIN 6
 #define JP_LEARN_GND_PIN 5
 
+#define LOCK_OPEN_PIN 7
+
+#define SOUND_PIN 2
+
 //variables for authentication code
 byte known_uid_count = 0; //because we need to know where to add a new one
 MFRC522::Uid known_uids[MAX_KNOWN_UIDS]; //for storing known tag uids
-byte pages_used[2] = {0x26,0x27};//we need to toggle between these to 
+byte pages_used[2] = {0x26, 0x27}; //we need to toggle between these to
 //make sure we dont ruin the old key when writing the new one
 
 //////////////////////////////////////////////
@@ -56,26 +60,26 @@ byte pages_used[2] = {0x26,0x27};//we need to toggle between these to
 // Rotate bits to the left
 // https://en.wikipedia.org/wiki/Circular_shift#Implementing_circular_shifts
 byte rotl(const byte value, int shift) {
-  if ((shift &= sizeof(value)*8 - 1) == 0)
+  if ((shift &= sizeof(value) * 8 - 1) == 0)
     return value;
-  return (value << shift) | (value >> (sizeof(value)*8 - shift));
+  return (value << shift) | (value >> (sizeof(value) * 8 - shift));
 }
 
 // Setup of the watchdog timer.
 void wdtSetup() {
   cli();
   MCUSR = 0;
-  
+
   /* Start timed sequence */
   WDTCSR |= _BV(WDCE) | _BV(WDE);
- 
+
   /* Put WDT into interrupt mode */
   /* Set shortest prescaler(time-out) value = 2048 cycles (~16 ms) */
   WDTCSR = _BV(WDIE);
- 
+
   sei();
 }
- 
+
 // Watchdog Timer Interrupt Service Routine
 ISR(WDT_vect)
 {
@@ -87,11 +91,11 @@ ISR(WDT_vect)
 ///////////////////helpers////////////////////
 //////////////////////////////////////////////
 
-void serialPrintBytes (byte *bytes, int size){
+void serialPrintBytes (byte *bytes, int size) {
   //print the bytes
-  for (int i = 0; i<size; i++){
+  for (int i = 0; i < size; i++) {
     Serial.print(bytes[i] < 0x10 ? " 0" : " ");
-    Serial.print(bytes[i],HEX);
+    Serial.print(bytes[i], HEX);
   }
   Serial.println();
 }
@@ -104,7 +108,7 @@ void serialPrintBytes (byte *bytes, int size){
 byte getUidIndex(MFRC522::Uid *uid)
 {
   byte found_uid_index = UID_NOT_KNOWN; //UID_NOT_KNOWN indicates that uid was not found
-  for (int uid_index = 0; uid_index < (sizeof(known_uids)/sizeof(MFRC522::Uid)); uid_index++)
+  for (int uid_index = 0; uid_index < (sizeof(known_uids) / sizeof(MFRC522::Uid)); uid_index++)
   {
     //loop through all known uids
     for (int uid_byte_index = 0; uid_byte_index < (*uid).size; uid_byte_index++)
@@ -123,7 +127,7 @@ byte getUidIndex(MFRC522::Uid *uid)
     }
     if (found_uid_index != UID_NOT_KNOWN) break; //we have found the uid, no reason to look further
   }
-  return(found_uid_index);
+  return (found_uid_index);
 }
 
 void readUidRecords(MFRC522::Uid uids[MAX_KNOWN_UIDS])
@@ -132,10 +136,10 @@ void readUidRecords(MFRC522::Uid uids[MAX_KNOWN_UIDS])
   //we have stored them right before the keys
   byte addr = KEY_STAORAGE_OFFSET - 1;
   byte uid_count = EEPROM.read(addr);
-  
+
   addr = 0x00; //reset to start of memory
   //read the UIDs
-  for (byte uid_index = 0; uid_index<uid_count; uid_index++)
+  for (byte uid_index = 0; uid_index < uid_count; uid_index++)
   {
     //for each stored uid
     uids[uid_index].size = UID_SIZE; //store the size of the uuid to the struct used by the RFID lib
@@ -164,7 +168,7 @@ void writeKeyRecord(byte key_index, byte page, byte key[])
   //first write the page we have written the key to
   EEPROM.write(addr, page);
   addr++;
-  for (byte i=0; i<KEY_SIZE; i++)
+  for (byte i = 0; i < KEY_SIZE; i++)
   {
     //then itarate over key bites and save them
     EEPROM.write(addr, key[i]);
@@ -176,7 +180,7 @@ void writeUidRecord(byte uid_index, byte uid[])
 {
   //calculating the start address for the entries we need 1 byte for the page and the space for the key
   byte addr = uid_index * (UID_SIZE);
-  for (byte i=0; i<UID_SIZE; i++)
+  for (byte i = 0; i < UID_SIZE; i++)
   {
     //then itarate over key bites and save them
     EEPROM.write(addr, uid[i]);
@@ -199,21 +203,21 @@ boolean authenticateKey(byte key_index, byte key[])
   //calculating adress of key, basically the same as for writing but offsetby one because we don't want to read the page
   byte addr = key_index * (1 + KEY_SIZE) + KEY_STAORAGE_OFFSET + 1;
   //we will directly compare the stored key for that card
-  for (byte i=0; i<KEY_SIZE; i++)
+  for (byte i = 0; i < KEY_SIZE; i++)
   {
     //by itarateing over key bytes
-    if(key[i] != EEPROM.read(addr))
+    if (key[i] != EEPROM.read(addr))
     {
       authenticated = false;
       break; //keys don't match no further investigation
     }
-    else if (i == KEY_SIZE -1)
+    else if (i == KEY_SIZE - 1)
     {
       //if we get here we have reached the last byte and comparison was successfull
       authenticated = true;
     }
     addr++;
-    
+
   }
   return authenticated;
 }
@@ -236,7 +240,7 @@ boolean writePage(byte page, byte data[4])
   serialPrintBytes(data, 4);
   if (status != MFRC522::STATUS_OK) {
     Serial.print("MIFARE_Ultralight_Write() failed: ");
-    Serial.println(mfrc522.GetStatusCodeName(status));
+    Serial.println(mfrc522.GetStatusCodeName((MFRC522::StatusCode)status));
     return false;
   }
   else
@@ -250,13 +254,13 @@ boolean readPage(byte page, byte buffer[4])
 {
   byte status;
   Serial.print("Reading page ");
-  Serial.println(page, HEX);     
+  Serial.println(page, HEX);
   byte buffer_tmp[18];
   byte size = sizeof(buffer_tmp);
   status = mfrc522.MIFARE_Read(page, buffer_tmp, &size);
   if (status != MFRC522::STATUS_OK) {
     Serial.print("MIFARE_Read() failed: ");
-    Serial.println(mfrc522.GetStatusCodeName(status));
+    Serial.println(mfrc522.GetStatusCodeName((MFRC522::StatusCode)status));
     return false;
   }
   else
@@ -273,16 +277,16 @@ boolean readPage(byte page, byte buffer[4])
 
 byte getNewKeyPage(byte key_index)
 {
-  //we need to verify that the new key gets written to a 
+  //we need to verify that the new key gets written to a
   //different page than the old one was stored to
   byte new_page = 0;
-  if(getPageForKey(key_index) == pages_used[0])
+  if (getPageForKey(key_index) == pages_used[0])
   {
-      new_page = pages_used[1];
+    new_page = pages_used[1];
   }
   else
   {
-      new_page = pages_used[0];
+    new_page = pages_used[0];
   }
   return new_page;
 }
@@ -293,11 +297,16 @@ byte getNewKeyPage(byte key_index)
 void accessGranted()
 {
   Serial.println("Access granted!");
+  digitalWrite(LOCK_OPEN_PIN, LOW); //make pin low to trigger doorlock
+  tone(SOUND_PIN, 700, 200); //Granted high pitch tone 700hz 200ms long
+  delay(1000);
+  digitalWrite(LOCK_OPEN_PIN, HIGH);//release doorlock remot button
 }
 
 void accessDenied()
 {
   Serial.println("Access denied!");
+  tone(SOUND_PIN, 150, 500); //Denied tone 500ms 150hz
 }
 
 //////////////////////////////////////////////
@@ -307,16 +316,21 @@ void accessDenied()
 void setup() {
   Serial.begin(115200);      // Initialize serial communications with the PC
   SPI.begin();               // Init SPI bus
+  mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_38dB); //set the gain to 48dB (111 binary)
   mfrc522.PCD_Init();        // Init MFRC522 card
   wdtSetup();                //setup the watchdog for randomness generation
-  
+
   //setup the two pins for learning jumper
   pinMode(JP_LEARN_PIN, INPUT_PULLUP); //input for the learning mode jumper
   pinMode(JP_LEARN_GND_PIN, OUTPUT); //virtual gnd for learn jumper
-  
+
   //make JP_LEARN_GND_PIN low to work as virtual gnd for learning jumper
   digitalWrite(JP_LEARN_GND_PIN, LOW);
-  
+
+  //make LOCK_OPEN_PIN output and high to not trigger remote on startup
+  digitalWrite(LOCK_OPEN_PIN, HIGH);
+  pinMode(LOCK_OPEN_PIN, OUTPUT);
+
   //read list of known uids from eeprom
   readUidRecords(known_uids);
 }
@@ -331,10 +345,10 @@ void loop() {
   if (rnd_sample_waiting) {
     rnd_sample_waiting = false;
     rnd_result_bytes_valid = false;
-   
+
     rnd_result = rotl(rnd_result, 1); // Spread randomness around
     rnd_result ^= rnd_sample; // XOR preserves randomness
-   
+
     rnd_current_bit++;
     if (rnd_current_bit > 7)
     {
@@ -345,7 +359,7 @@ void loop() {
       {
         rnd_current_byte = 0;
         Serial.print("New random key:");
-        serialPrintBytes(rnd_result_bytes,4);
+        serialPrintBytes(rnd_result_bytes, 4);
         // flag the current random bytes as valid
         rnd_result_bytes_valid = true;
         //disable the watchdog to halt random generation
@@ -353,27 +367,27 @@ void loop() {
       }
     }
   }
-  
+
   //code for RFID reading and writing
   byte status;
   // Look for new cards
   if ( ! mfrc522.PICC_IsNewCardPresent()) {
-          return;
+    return;
   }
 
   // Select one of the cards
   if ( ! mfrc522.PICC_ReadCardSerial()) {
-          return;
+    return;
   }
   // Now a card is selected. The UID and SAK is in mfrc522.uid.
-  
+
   // Dump UID
-  //Serial.print("Card UID:");
-  //serialPrintBytes(mfrc522.uid.uidByte, mfrc522.uid.size);
+  Serial.print("Card UID:");
+  serialPrintBytes(mfrc522.uid.uidByte, mfrc522.uid.size);
   Serial.println();
 
   //only allow ultralight compatible tags
-  byte piccType = mfrc522.PICC_GetType(mfrc522.uid.sak);
+  MFRC522::PICC_Type piccType = mfrc522.PICC_GetType(mfrc522.uid.sak);
   if (piccType != MFRC522::PICC_TYPE_MIFARE_UL) {
     Serial.println("This only supports mifare ultralight compatible tags (ntag203).");
     // Dump PICC type
@@ -381,7 +395,7 @@ void loop() {
     Serial.println(mfrc522.PICC_GetTypeName(piccType));
     return;
   }
-  
+
   //look it up, try to get index of the current uid
   byte current_uid_index = getUidIndex(&mfrc522.uid);
   if (current_uid_index != UID_NOT_KNOWN)
@@ -392,7 +406,7 @@ void loop() {
     if (readPage(key_page, key_buffer))
     {
       //we have read the key sucessfully, now authenticate it
-      if (authenticateKey(current_uid_index, key_buffer)||(!digitalRead(JP_LEARN_PIN)))
+      if (authenticateKey(current_uid_index, key_buffer) || (!digitalRead(JP_LEARN_PIN)))
       {
         //we are now authenticated or in learning mode
         //get the new key page
@@ -402,10 +416,10 @@ void loop() {
         {
           //writing was succesfull
           //store the just written page/key in eeprom
-          writeKeyRecord(current_uid_index,new_key_page, rnd_result_bytes);
+          writeKeyRecord(current_uid_index, new_key_page, rnd_result_bytes);
           Serial.println("New key sucessfully written to tag.");
           accessGranted();
-        } 
+        }
         else
         {
           Serial.println("Error writing key. Authentication aborted, please retry.");
@@ -434,34 +448,37 @@ void loop() {
       {
         //writing was succesfull
         //store the just written page/key in eeprom
-        writeKeyRecord(new_index,pages_used[0], rnd_result_bytes);
+        writeKeyRecord(new_index, pages_used[0], rnd_result_bytes);
         //add the uid to the known ones
         writeUidRecord(new_index, mfrc522.uid.uidByte);
         //list of known uids changed, update it
         readUidRecords(known_uids);
         //all done
         Serial.println("New UID sucessfully added and initialized.");
-      } 
+      }
       else
       {
         Serial.println("Error writing key. Learning aborted, pleas retry.");
       }
     }
-    else{
+    else {
       Serial.println("This UID is not known, authentication failed.");
       accessDenied();
     }
   }
-  
+
+  delay(100);
+
   status = mfrc522.PICC_HaltA();
   if (status != MFRC522::STATUS_OK) {
-                  Serial.print("PICC_HaltA() failed: ");
-                  Serial.println(mfrc522.GetStatusCodeName(status));
+    Serial.print("PICC_HaltA() failed: ");
+    Serial.println(mfrc522.GetStatusCodeName((MFRC522::StatusCode)status));
   }
   else
   {
     Serial.println("PICC halted sucessfully, please reenter field to write again");
   }
+
   //enable watchdog timer to start random generation
   wdtSetup();
 }
